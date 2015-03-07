@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
-from ctypes import cdll, create_string_buffer
+import ctypes
 
 ###############################################################################
 # Defines
 ###############################################################################
-keyutils = cdll.LoadLibrary('libkeyutils.so.1') #need to check for
+keyutils = ctyles.cdll.LoadLibrary('libkeyutils.so.1') #need to check for
                                                 #this or find it
+libc = ctyles.cdll.LoadLibrary("libc.so.6")
 
 KEYCTL_GET_KEYRING_ID = 0
 KEYCTL_UPDATE = 2
@@ -55,23 +56,35 @@ class Key(object):
         self.k_id = k_id
         self._buf_len = keyutils.keyctl(KEYCTL_DESCRIBE, self.k_id, None, 0)
         assert self._buf_len > 0, "key not found"
+        self._get_descrip()
 
-    def __getattr__(self, key):
-        if key in self.__dict__:
-            return self.__dict__[key]
-        elif key in ["type", "uid", "gid", "perm", "description"]:
+    def __getattr__(self, name): #beware of toctou
+        if name in self.__dict__:
+            return self.__dict__[name]
+        elif name in ["type", "uid", "gid", "perm", "description"]:
             self._get_descrip()
-        elif key == "value":
-            return self.read()
-        elif key == "keyring":
+        elif name == "value":
+            return self.read() 
+        elif name == "keyring":
             self._get_keyring()
-        return self.__getattribute__(key)
+        return self.__getattribute__(name)
+
+    def __setattr__(self, name, value):
+        if name == "value":
+            return self.update(value)
+        elif name in ["description", "type"] and name in self.__dict__:
+            #this is immutable
+            raise Exception("you fucked up")
+        elif name in ["uid", "gid"] and name in self.__dict__:
+            return self.chown(**{name:value})
+        object.__setattr__(self, name, value)
 
     def _get_descrip(self):
-        buf = create_string_buffer(self._buf_len)
+        buf = ctypes.create_string_buffer(self._buf_len) 
         keyutils.keyctl(KEYCTL_DESCRIBE, self.k_id, buf, self._buf_len)
         (self.type, self.uid,
          self.gid, self.perm, self.description) = buf.value.split(';')
+        buf.value = "\0" * len(buf)
         del(buf)
 
     def _get_keyring(self):
@@ -84,35 +97,41 @@ class Key(object):
         return "<Key %s: '%s'>" % (self.k_id, self.description)
 
     def update(self, payload):
-        plen = len(payload)
+        #because payloads can't be safely cleared this library isn't
+        #safe to use. Secrets will stay in memory
+        plen = len(payload) #this can't be cleared without doing
+                            #*really* bad things.
         keyutils.keyctl(KEYCTL_UPDATE, self.k_id, payload, plen)
-        self._get_value()
-        del(payload)
+        ## however this fucking voodoo would work
+        p = ctypes.cast(id(payload)+20, ctypes.c_char_p)
+        ctypes.memset(p, 0, plen)
+        
 
     def revoke(self):
         keyutils.keyctl(KEYCTL_REVOKE, self.k_id)
         for k in self.__dict__.iterkeys():
             self.__dict__[k] = "[deleted]"
 
-
-    def chown(self, user=-1, group=-1):
+    def chown(self, uid=-1, gid=-1):
         #should only be possible by root
-        #keyctl(KEYCTL_CHOWN, key_serial_t key, uid_t uid, gid_t gid)
-        pass
+        keyutils.keyctl(KEYCTL_CHOWN, self.k_id, uid, gid)
+        #i can haz error handling?
+        if uid > 0:
+            assert uid == self.uid, \
+                   "this is why we can't have nice things"
+        if gid > 0:
+            assert gid == self.gid, \
+                   "now look what you've done"
 
     def chmod(self, mode):
         #keyctl(KEYCTL_SETPERM, key_serial_t key, key_perm_t perm);
         pass
 
-    def describ(self):
-        # print out <type>;<uid>;<gid>;<perm>;<description>
-        # or dump a dict...
-        pass
-    
-    # def clear(self):
-    #     #clears a keyring of keys
-    #     keyutils.keyctl(KEYCTL_CLEAR, key_serial_t keyring);
-    # not sure if this shoule be in the key object....
+    def clear(self):
+        #might split Key and Keyring out....
+        assert self.type == "keyring", "is not of type 'keyring'"
+        #clears a keyring of keys
+        keyutils.keyctl(KEYCTL_CLEAR, self.k_id);
     
     def link(self, keyring):
         if type(keyring) == type(self):
@@ -128,14 +147,14 @@ class Key(object):
     def read(self):
         #make sure this works with keyrings
         _buf_len = keyutils.keyctl(KEYCTL_READ, self.k_id, None, 0);
-        buf = create_string_buffer(_buf_len)
+        buf = ctyles.create_string_buffer(_buf_len)
         keyutils.keyctl(KEYCTL_READ, self.k_id, buf, _buf_len);
-        value = buf.value
-        del(buf) # make sure this is actually freed
+        value = buf.raw
+        buf.value = '\0' * len(buf)
         return value
 
     def set_timeout(self, timout=0):
-        keyutils.keyctl(KEYCTL_SET_TIMEOUT, self.k_id, unsigned timeout)
+        keyutils.keyctl(KEYCTL_SET_TIMEOUT, self.k_id, timeout)
 
     def clear_timout(self):
         self.set_timeout()
@@ -162,7 +181,14 @@ def add_key(descrip, payload, type="user", keyring="User"):
     plen = len(payload) #need to figure out how to clear this since
                         #strings are immutable...
     k_id = keyutils.add_key(type, descrip, payload, plen, KEYRING[keyring])
+    p = ctypes.cast(id(payload)+20, ctypes.c_char_p)
+    ctypes.memset(p, 0, plen)
     return Key(k_id)
+
+
+def add_keyring(descrip, keyring="User"):
+    return add_key(type="keyring", descrip=descrip, payload=None,
+                   plen=0, keyring=KEYRING[keyring])
 
 
 def get_keyring(k_id, create = 0):
