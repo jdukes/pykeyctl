@@ -6,9 +6,7 @@ import ctypes
 # Defines
 ###############################################################################
 keyutils = ctypes.cdll.LoadLibrary('libkeyutils.so.1') #need to check for
-                                                #this or find it
-libc = ctypes.cdll.LoadLibrary("libc.so.6")
-
+                                                       #this or find it
 KEYCTL_GET_KEYRING_ID = 0
 KEYCTL_UPDATE = 2
 KEYCTL_REVOKE = 3
@@ -166,15 +164,9 @@ class Key(object):
     def clear_timout(self):
         self.set_timeout()
 
-
-
 ###############################################################################
 # Helper functions
 ###############################################################################
-
-def get_key(k_id):
-    return Key(k_id)
-
 
 def find_key(descrip, k_type="user", keyring='User'):
     k_id = keyutils.keyctl(KEYCTL_SEARCH, KEYRING[keyring],
