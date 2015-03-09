@@ -12,6 +12,7 @@
 
 #list keyrings
 #instantiate keyring
+# self._as_parameter_ = kid <- allows to be passed in to ctypes
 #instantiate key
 
 #__all__ = []
