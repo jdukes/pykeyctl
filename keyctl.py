@@ -5,9 +5,9 @@ import ctypes
 ###############################################################################
 # Defines
 ###############################################################################
-keyutils = ctyles.cdll.LoadLibrary('libkeyutils.so.1') #need to check for
+keyutils = ctypes.cdll.LoadLibrary('libkeyutils.so.1') #need to check for
                                                 #this or find it
-libc = ctyles.cdll.LoadLibrary("libc.so.6")
+libc = ctypes.cdll.LoadLibrary("libc.so.6")
 
 KEYCTL_GET_KEYRING_ID = 0
 KEYCTL_UPDATE = 2
@@ -54,7 +54,11 @@ class Key(object):
     def __init__(self, k_id):
         assert type(k_id) == int, "argument must be an integer"
         self.k_id = k_id
-        self._buf_len = keyutils.keyctl(KEYCTL_DESCRIBE, self.k_id, None, 0)
+        keyutils.keyctl_describe_alloc(self.k_id, );
+        self._buf_len = keyutils.keyctl(KEYCTL_DESCRIBE,
+                                        self.k_id,
+                                        ctypes.c_char_p(),
+                                        0)
         assert self._buf_len > 0, "key not found"
         self._get_descrip()
 
@@ -80,11 +84,11 @@ class Key(object):
         object.__setattr__(self, name, value)
 
     def _get_descrip(self):
+        #user properties
         buf = ctypes.create_string_buffer(self._buf_len) 
         keyutils.keyctl(KEYCTL_DESCRIBE, self.k_id, buf, self._buf_len)
         (self.type, self.uid,
-         self.gid, self.perm, self.description) = buf.value.split(';')
-        buf.value = "\0" * len(buf)
+         self.gid, self.perm, self.description) = buf.value.decode().split(';')
         del(buf)
 
     def _get_keyring(self):
@@ -96,6 +100,10 @@ class Key(object):
     def __repr__(self):
         return "<Key %s: '%s'>" % (self.k_id, self.description)
 
+    def __delete__(self):
+        #cleanup allocs
+        pass
+
     def update(self, payload):
         #because payloads can't be safely cleared this library isn't
         #safe to use. Secrets will stay in memory
@@ -106,7 +114,6 @@ class Key(object):
         p = ctypes.cast(id(payload)+20, ctypes.c_char_p)
         ctypes.memset(p, 0, plen)
         
-
     def revoke(self):
         keyutils.keyctl(KEYCTL_REVOKE, self.k_id)
         for k in self.__dict__.iterkeys():
@@ -147,7 +154,7 @@ class Key(object):
     def read(self):
         #make sure this works with keyrings
         _buf_len = keyutils.keyctl(KEYCTL_READ, self.k_id, None, 0);
-        buf = ctyles.create_string_buffer(_buf_len)
+        buf = ctypes.create_string_buffer(_buf_len)
         keyutils.keyctl(KEYCTL_READ, self.k_id, buf, _buf_len);
         value = buf.raw
         buf.value = '\0' * len(buf)
@@ -158,6 +165,7 @@ class Key(object):
 
     def clear_timout(self):
         self.set_timeout()
+
 
 
 ###############################################################################
@@ -183,7 +191,8 @@ def add_key(descrip, payload, type="user", keyring="User"):
     k_id = keyutils.add_key(type, descrip, payload, plen, KEYRING[keyring])
     p = ctypes.cast(id(payload)+20, ctypes.c_char_p)
     ctypes.memset(p, 0, plen)
-    return Key(k_id)
+    return k_id
+    #return Key(k_id)
 
 
 def add_keyring(descrip, keyring="User"):
@@ -198,3 +207,12 @@ def get_keyring(k_id, create = 0):
     else:
         raise Exception("shit broke") #need a good exception here
 
+
+def request_key(descrip, type="user",
+                callout_info=None,
+                keyring=KEYRING["User"]):
+    k_id = keyutils.request_key(type, descrip, callout_info, keyring);
+    if k_id > 0:
+        return Key(k_id)
+    else:
+        raise Exception("shit broke") #need a good exception here
