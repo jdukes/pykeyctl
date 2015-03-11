@@ -10,7 +10,7 @@ from inspect import getcallargs
 #from .. import exceptions
 from sys import path
 path.insert(0, '..')
-from exceptions import ArgumentTypeException, KeyCtlError
+from exceptions import *
 
 #from .defines import *
 from defines import *
@@ -181,16 +181,27 @@ def error_checked(fn, *args, **kwargs):
 # Helpers
 ###############################################################################
 
-
 def keyctl_string_reader(op, key):
     buf_len = keyutils.keyctl(op,
                               key,
                               ctypes.c_char_p(),
                               0)
-    error_check(buf_len, _get_security_context)
+    error_check(buf_len, )
     buf = ctypes.create_string_buffer(buf_len)
     ret = keyutils.keyctl(op, key, buf, buf_len)
     error_check(ret, _get_security_context)
+    if ret < buf_len:
+        raise UnderflowError(buf_len, ret)
+    return buf.value
+
+
+#merge these two
+def wrapped_string_reader(fn, key):
+    buf_len = fn(key, ctypes.c_char_p(), 0)
+    error_check(buf_len, fn)
+    buf = ctypes.create_string_buffer(buf_len)
+    ret = fn(key, buf, buf_len)
+    error_check(ret, fn)
     if ret < buf_len:
         raise UnderflowError(buf_len, ret)
     return buf.value
@@ -233,6 +244,323 @@ def request_key(descrip: [bytes],
     """
     return keyutils.request_key(key_type, descrip, callout_info, dest_keyring)
 
+#------------------------------------------------------------------------------
+# keyctl function wrappers
+#------------------------------------------------------------------------------
+
+@error_checked
+def keyctl_get_keyring(key: [bytes], create: [bool, int]=True):
+    """Get keyring by ID.
+    
+    This is a wrapper for the following function:
+
+        extern key_serial_t keyctl_get_keyring_ID(key_serial_t id, int create);
+    """
+    return keyutils.keyctl_get_keyring_ID(key, create)
+
+
+@error_checked
+def keyctl_join_session_keyring(name: [bytes, None] = None) -> key_serial_t:
+    """Join a session keyring by name, or make an anonymous one.
+
+    If no args are passed in or name is None, an anonymous keyring is
+    created attached to the process as its session keyring,
+    displacing the old session keyring.
+
+    This is a wrapper for the following function:
+
+        extern key_serial_t keyctl_join_session_keyring(const char *name);
+    """
+    return keyutils.keyctl_join_session_keyring(name)
+
+
+@error_checked
+def keyctl_update(key: [key_serial_t, int], payload: [bytes]):
+    """Updated the payload for a key by ID.
+    
+    This is a wrapper for the following function:
+
+        extern long keyctl_update(key_serial_t id, const void *payload, size_t plen);
+    """
+    return keyutils.keyctl_update(key, payload, len(payload))
+
+
+@error_checked
+def keyctl_revoke(key: [key_serial_t, int]):
+    """Make the key unavailable for further operations.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_revoke(key_serial_t id);
+    """
+    return keyutils.keyctl_revoke(key)
+
+
+@error_checked
+def keyctl_chown(key: [key_serial_t, int], uid: [uid_t], gid: [gid_t]) -> ctypes.c_long:
+    """Change ownership of a key. 
+
+    Either one of uid or gid can be set to -1 to suppress that change.
+    
+    This is a wrapper for the following function:
+
+        extern long keyctl_chown(key_serial_t id, uid_t uid, gid_t gid);
+    """
+    return keyutils.keyctl_chown(key, uid, gid)
+
+
+@error_checked
+def keyctl_chmod(key: [key_serial_t, int], perm: [key_perm_t]) -> ctypes.c_long:
+    """Change the permissions of a key.
+    
+    This is a wrapper for the following function:
+
+        extern long keyctl_setperm(key_serial_t id, key_perm_t perm);
+    """
+    return keyutils.keyctl_setperm(key, perm)
+
+
+@error_checked
+def keyctl_describe(key: [key_serial_t, int]) -> bytes:
+    """Get a summary of key attributes.
+
+    A successful call will return a bytes of the following format:
+    b"<type>;<uid>;<gid>;<perm>;<description>"
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_describe(key_serial_t id, char *buffer, size_t buflen);
+    """
+    return wrapped_string_reader(keyutils.keyctl_describe, key)
+
+
+@error_checked
+def keyctl_clear_keyring(ringid: [key_serial_t, int]) -> ctypes.c_long:
+    """Clear a keyring by id.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_clear(key_serial_t ringid);
+    """
+    return keyutils.keyctl_clear(ringid)
+
+
+@error_checked
+def keyctl_link(key: [key_serial_t, int],
+                ringid: [key_serial_t, int]) -> ctypes.c_long:
+
+    """Link a key to a keyring.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_link(key_serial_t id, key_serial_t ringid);
+    """
+    return keyutils.keyctl_link(key, ringid)
+
+
+@error_checked
+def keyctl_unlink(key: [key_serial_t, int],
+                  ringid: [key_serial_t, int]) -> ctypes.c_long:
+    """Remove a key from a keyring given permission to modify the keyring.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_unlink(key_serial_t id, key_serial_t ringid);
+    """
+    return keyutils.keyctl_unlink(key, ringid)
+
+
+@error_checked
+def keyctl_search_keytree(ringid: [key_serial_t, int],
+                          key_type: [bytes],
+                          description: [bytes],
+                          destringid: [key_serial_t, int]) -> key_serial_t:
+    """Search src_keyring tree for a key and add it to the dest_keyring:
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_search(key_serial_t ringid, const char *type, const char *description, key_serial_t destringid);
+    """
+    return keyutils.keyctl_search(ringid, key_type, description, destringid)
+
+
+@error_checked
+def keyctl_read(key: [key_serial_t, int]) -> bytes:
+    """Return the payload for a key. 
+
+    Get the key payload for a given key id. In Python this is
+    impossible to securely erase. Do not read highly sensitive keys
+    using this method.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_read(key_serial_t id, char *buffer, size_t buflen);
+    """
+    return wrapped_string_reader(keyutils.keyctl_read, key)
+
+@error_checked
+@input_validated
+def session_to_parent():
+    """Install the calling process's session keyring on its parent.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_session_to_parent(void);
+    """
+    return keyutils.keyctl_session_to_parent(void)
+
+
+@error_checked
+def keyctl_instantiate(key: [key_serial_t, int],
+                       payload: [bytes],
+                       ringid: [key_serial_t, int]) -> ctypes.c_long:
+    """Instantiate a partially constructed key.
+
+    Assign the value payload to the key in keyring.
+    
+    This is a wrapper for the following function:
+
+        extern long keyctl_instantiate(key_serial_t id, const void *payload, size_t plen, key_serial_t ringid);
+    """
+    return keyutils.keyctl_instantiate(key, payload, len(payload), ringid)
+
+# @error_checked
+# def keyctl_instantiate_iov(*args, **kwargs):
+#     """NOT IMPLEMENTED.
+
+#     Instantiate a partially constructed key. Assign the value payload
+#     to the key in keyring.
+    
+#     This is a wrapper for the following function:
+
+#         extern long keyctl_negate(key_serial_t id, unsigned timeout, key_serial_t ringid);
+#     """
+#     
+
+@error_checked
+def keyctl_negate(key: [key_serial_t, int],
+                  timeout: [ctypes.c_uint],
+                  ringid: [key_serial_t, int, None] = None ) -> ctypes.c_long:
+    """Negate the initialization of a key.
+
+    If a keyring is specified and not None the key will also be linked
+    into that keyring given proper permissions. Searches for this key
+    will return "No such key" (ENOKEY) until the timeout expires.
+
+    This is a wrapper for the following function:
+
+      extern long keyctl_negate(key_serial_t id, unsigned timeout, key_serial_t ringid);
+    """
+    return keyutils.keyctl_negate(key, timeout, ringid)
+
+
+@error_checked
+def keyctl_reject(key: [key_serial_t, int],
+                  timeout: [ctypes.c_uint],
+                  error: [ctypes.c_uint],
+                  ringid: [key_serial_t, int, None] = None ) -> ctypes.c_long:
+    """Reject the initialization of a key.
+
+    If a keyring is specified and not None the key will also be linked
+    into that keyring given proper permissions. Searches for this key
+    will return the error specified by "error" until the timeout expires.
+
+    This is a wrapper for the following function:
+
+       extern long keyctl_reject(key_serial_t id, unsigned timeout, 
+                                 unsigned error, key_serial_t ringid);
+    """
+    return keyutils.keyctl_reject(key, timeout, error, ringid);
+                                  
+
+@error_checked
+def keyctl_set_req_keyring(reqkey_defl: [ctypes.c_int, int]) -> ctypes.c_long:
+    """Set the default request-key destination keyring.
+
+    The following constants define which keyring to assign as default:
+
+	CONSTANT				VALUE	NEW DEFAULT KEYRING
+	======================================	======	=======================
+	KEY_REQKEY_DEFL_NO_CHANGE		-1	No change
+	KEY_REQKEY_DEFL_DEFAULT			0	Default[1]
+	KEY_REQKEY_DEFL_THREAD_KEYRING		1	Thread keyring
+	KEY_REQKEY_DEFL_PROCESS_KEYRING		2	Process keyring
+	KEY_REQKEY_DEFL_SESSION_KEYRING		3	Session keyring
+	KEY_REQKEY_DEFL_USER_KEYRING		4	User keyring
+	KEY_REQKEY_DEFL_USER_SESSION_KEYRING	5	User session keyring
+	KEY_REQKEY_DEFL_GROUP_KEYRING		6	Group keyring
+
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_set_reqkey_keyring(int reqkey_defl);
+    """
+    return keyutils.keyctl_set_reqkey_keyring(reqkey_defl)
+
+@error_checked
+def keyctl_get_default_req_keyring(): #!!fix!! this should resolve the
+                                      #keyring from the def
+                                      #keyctl_list above
+    return keyctl_set_req_keyring(-1)
+
+
+@error_checked
+@input_validated
+def keyctl_set_timeout(key: [key_serial_t, int],
+                       timeout: [ctypes.c_uint, int]) -> ctypes.c_long:
+    """Set the timeout on a key.
+                 
+    This is a wrapper for the following function:
+
+        extern long keyctl_set_timeout(key_serial_t key, unsigned timeout);
+    """
+    return keyutils.keyctl_set_timeout(key, timeout)
+
+
+@error_checked
+def keyctl_assume_authority(key: [key_serial_t, int]) -> ctypes.c_long:
+    """Assume the authority granted to instantiate a key.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_assume_authority(key_serial_t key);
+
+    """
+    return keyutils.keyctl_assume_authority(key)
+
+@error_checked
+def keyctl_get_security_context(key: [key_serial_t, int]) -> bytes:
+    """Get the LSM security context attached to a key.
+    
+    Get a string represenatiation of the LSM security context.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_get_security(key_serial_t key, char *buffer, size_t buflen);
+    """
+    return wrapped_string_reader(keyutils.keyctl_get_security, key)
+
+# struct iovec;
+# extern long keyctl_instantiate_iov(key_serial_t id,
+# 				   const struct iovec *payload_iov,
+# 				   unsigned ioc,
+
+@error_checked
+def keyctl_invaldate(key: [key_serial_t, int]) -> ctypes.c_long:
+    """Invalidate this key.
+
+    This is a wrapper for the following function:
+
+        extern long keyctl_invalidate(key_serial_t id);
+    """
+    return keyutils.keyctl_invalidate(key)
+
+#extern long keyctl_get_persistent(uid_t uid, key_serial_t id);
+
+
+#------------------------------------------------------------------------------
+# keyctl calls
+#------------------------------------------------------------------------------
 
 @error_checked
 @input_validated
@@ -512,7 +840,7 @@ def set_req_keyring(reqkey_defl: [ctypes.c_int, int]) -> ctypes.c_long:
 
 def get_default_req_keyring(): #!!fix!! this should resolve the
                                 #keyring from the def list above
-    return _set_req_keyring(-1)
+    return set_req_keyring(-1)
 
 
 @error_checked

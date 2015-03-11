@@ -3,11 +3,11 @@
 import errno
 
 class ArgumentTypeException(Exception):
-    def __init__(self, bad_args):
-        self.bad_args = bad_args
+    def __init__(self, bad_args_msgs):
+        self.bad_args_msgs = bad_args_msgs
 
     def __str__(self):
-        return "Incorrect argument types: %s" % ', '.join(self.bad_args)
+        return "Incorrect argument types: %s" % ', '.join(self.bad_args_msgs)
 
     def __repr__(self):
         return str(self)

@@ -93,4 +93,3 @@ gid_t = c_uint32
 uid_t = c_uint32
 c_char_p_p = POINTER(c_char_p)
 c_void_p_p = POINTER(c_void_p)
-
