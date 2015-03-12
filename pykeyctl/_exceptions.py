@@ -39,7 +39,8 @@ class KeyCtlError(Exception):
                 "EKEYREVOKED": "Key has been revoked",
                 "EKEYEXPIRED": "Key has expired",
                 "EOPNOTSUPP": "Operation not supported for this key",
-                "ENOMEM": "Insufficient memory to perform this operation"}
+                "ENOMEM": "Insufficient memory to perform this operation",
+                "EINVAL": "Invalid value"}
 
     def __init__(self, err, fn):
         self.err = err

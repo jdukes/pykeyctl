@@ -7,7 +7,7 @@ import ctypes
 ###############################################################################
 keyutils = ctypes.cdll.LoadLibrary('libkeyutils.so.1') #need to check for
                                                 #this or find it
-libc = ctypes.cdll.LoadLibrary("libc.so.6")
+#libc = ctypes.cdll.LoadLibrary("libc.so.6")
 
 KEYCTL_GET_KEYRING_ID = 0
 KEYCTL_UPDATE = 2
@@ -26,12 +26,13 @@ KEYCTL_SET_REQKEY_KEYRING = 14
 KEYCTL_SET_TIMEOUT = 15
 KEYCTL_ASSUME_AUTHORITY = 16
 
-KEYRING = {"Thread": -1,
+KEYRING = {"Default": 0,
+           "Thread": -1,
            "Process": -2,
            "Session": -3,
            "User": -4,
            "User_session": -5,
-           "group": -6,
+           "Group": -6,
            "reqkey_auth_key": -7} #	assumed request_key() authorisation key
 
 KEY_REQKEY_DEFL_NO_CHANGE = -1#	No change

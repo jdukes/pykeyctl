@@ -7,17 +7,12 @@ from ctypes.util import find_library
 from inspect import getcallargs
 
 
-#from .. import exceptions
-from sys import path
-path.insert(0, '..')
-from exceptions import *
+from .._exceptions import *
 
-#from .defines import *
-from defines import *
+from .defines import *
 
 from decorator import decorator, FunctionMaker #dependancy
 
-#keyutils = ctypes.cdll.LoadLibrary(find_library('keyutils'))
 keyutils = ctypes.CDLL(find_library('keyutils'), use_errno=True)
 
 ###############################################################################
@@ -145,17 +140,17 @@ keyutils.find_key_by_type_and_desc.argtypes = [ctypes.c_char_p,
                                                ctypes.c_char_p,
                                                key_serial_t]
 
-def validate_args(locals, annotation):
+def validate_args(callargs, annotation):
     errors = ["%s is '%s' but should be one of '%s'" % (k,
                                                         type(v).__name__,
                                                         [a.__name__ for a in
                                                          annotation[k]])
-              for k,v in locals.items()
+              for k,v in callargs.items()
               if not type(v) in annotation[k]]
     if errors:
         raise ArgumentTypeException(errors)
 
-@decorator    
+@decorator
 def input_validated(fn, *args, **kwargs):
     validate_args(getcallargs(fn, *args, **kwargs), fn.__annotations__)
     return fn(*args, **kwargs)
@@ -169,6 +164,7 @@ def input_validated(fn, *args, **kwargs):
 def error_check(ret, fn):
     if ret == -1:
         raise KeyCtlError(ctypes.get_errno(), fn)
+
 
 @decorator
 def error_checked(fn, *args, **kwargs):
@@ -187,31 +183,31 @@ def keyctl_string_reader(op, key):
                               ctypes.c_char_p(),
                               0)
     error_check(buf_len, )
-    buf = ctypes.create_string_buffer(buf_len)
     ret = keyutils.keyctl(op, key, buf, buf_len)
+    buf = bytes(buf_len)
     error_check(ret, _get_security_context)
     if ret < buf_len:
         raise UnderflowError(buf_len, ret)
-    return buf.value
+    return buf
 
 
 #merge these two
 def wrapped_string_reader(fn, key):
     buf_len = fn(key, ctypes.c_char_p(), 0)
     error_check(buf_len, fn)
-    buf = ctypes.create_string_buffer(buf_len)
+    buf = bytes(buf_len)
     ret = fn(key, buf, buf_len)
     error_check(ret, fn)
     if ret < buf_len:
         raise UnderflowError(buf_len, ret)
-    return buf.value
+    return buf
     
 
 ###############################################################################
 # Exported functions
 ###############################################################################
 
-
+#@type_convert
 @error_checked
 def add_key(descrip: [bytes],
              payload: [bytes],
@@ -249,7 +245,7 @@ def request_key(descrip: [bytes],
 #------------------------------------------------------------------------------
 
 @error_checked
-def keyctl_get_keyring(key: [bytes], create: [bool, int]=True):
+def keyctl_get_keyring(key: [key_serial_t, int], create: [bool, int]=True):
     """Get keyring by ID.
     
     This is a wrapper for the following function:
@@ -261,6 +257,7 @@ def keyctl_get_keyring(key: [bytes], create: [bool, int]=True):
 
 @error_checked
 def keyctl_join_session_keyring(name: [bytes, None] = None) -> key_serial_t:
+
     """Join a session keyring by name, or make an anonymous one.
 
     If no args are passed in or name is None, an anonymous keyring is
@@ -399,8 +396,7 @@ def keyctl_read(key: [key_serial_t, int]) -> bytes:
     return wrapped_string_reader(keyutils.keyctl_read, key)
 
 @error_checked
-@input_validated
-def session_to_parent():
+def keyctl_session_to_parent():
     """Install the calling process's session keyring on its parent.
 
     This is a wrapper for the following function:
@@ -474,7 +470,7 @@ def keyctl_reject(key: [key_serial_t, int],
                                   
 
 @error_checked
-def keyctl_set_req_keyring(reqkey_defl: [ctypes.c_int, int]) -> ctypes.c_long:
+def keyctl_set_req_keyring(reqkey_defl: [ctypes.c_int, int, str]) -> ctypes.c_long:
     """Set the default request-key destination keyring.
 
     The following constants define which keyring to assign as default:
@@ -495,13 +491,13 @@ def keyctl_set_req_keyring(reqkey_defl: [ctypes.c_int, int]) -> ctypes.c_long:
 
         extern long keyctl_set_reqkey_keyring(int reqkey_defl);
     """
+    if type(reqkey_defl) == 'str':
+        reqkey_defl = -KEYRING[reqkey_defl]
     return keyutils.keyctl_set_reqkey_keyring(reqkey_defl)
 
 @error_checked
-def keyctl_get_default_req_keyring(): #!!fix!! this should resolve the
-                                      #keyring from the def
-                                      #keyctl_list above
-    return keyctl_set_req_keyring(-1)
+def keyctl_get_default_req_keyring(): 
+    return KEYRING[-keyctl_set_req_keyring(-1)]
 
 
 @error_checked
