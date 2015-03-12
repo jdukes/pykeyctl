@@ -35,14 +35,14 @@ class Key(object):
         return "<%s(%d)>" % (self.__class__.__name__, self.id)
 
     @classmethod
-    def request(cls, descrip, callout_info, key_type="user", dest_keyring=-4):
+    def request(cls, descrip, callout_info, key_type=b"user", dest_keyring=-4):
         #this sucks, do this in a better way
         if type(descrip) == "str":
             descrip = descrip.encode('utf8')
         if type(callout_info) == "str":
-             callout_info = callout_info.encode('utf8')
+            callout_info = callout_info.encode('utf8')
         if type(key_type) == "str":
-             key_type = key_type.encode('utf8')
+            key_type = key_type.encode('utf8')
         key = request_key(descrip, callout_info, key_type, dest_keyring)
         return cls(key)
 
@@ -100,6 +100,15 @@ class Key(object):
     def read(self):
         self._keybytes = keyctl_read(self.id)
         return self._keybytes
+
+    @property
+    def keyring(self):
+        self.ringid = keyutils.keyctl(KEYCTL_GET_KEYRING_ID, self.id, 0)
+        return Keyring(self.ringid)
+    
+    def instantiate(self, payload, ringid):
+        keyctl_assume_authority(self.id)
+        keyctl_instantiate(self.id, payload, ringid)
 
     
 class Keyring(Key):

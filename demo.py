@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 
-from sys import path
-path.insert(0, '.')
-
-from pykeyctl import Key, Keyring
+from keyctl import Key, Keyring
 #import pykeyctl
 
 
