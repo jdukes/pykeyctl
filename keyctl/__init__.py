@@ -30,6 +30,7 @@ class Key(object):
         #create metaclass that determines if key or keyring and inits
         #correctly
         self.id = id
+        self._as_parameter_ = self.id
 
     def __repr__(self):
         return "<%s(%d)>" % (self.__class__.__name__, self.id)
@@ -103,7 +104,7 @@ class Key(object):
 
     @property
     def keyring(self):
-        self.ringid = keyutils.keyctl(KEYCTL_GET_KEYRING_ID, self.id, 0)
+        self.ringid = keyctl_get_keyring(self.id)
         return Keyring(self.ringid)
     
     def instantiate(self, payload, ringid):
@@ -113,8 +114,19 @@ class Key(object):
     
 class Keyring(Key):
 
+    def add_key(self, descrip, payload, key_type="user"):
+        if type(descrip) == str:
+            descrip = descrip.encode('utf8')
+        if type(payload) == str:
+             payload = payload.encode('utf8')
+        if type(key_type) == str:
+             key_type = key_type.encode('utf8')
+        key = add_key(descrip, payload, key_type, self.id)
+        return cls(key)
+    
+    
     @classmethod
-    def show_tree(cls, start_keyring=-3):
+    def tree(cls, start_keyring=-3):
         for k in Keyring(start_keyring).children:
             yield k
             if k.type == "keyring":
@@ -137,10 +149,5 @@ class Keyring(Key):
         keyctl_clear_keyring(self.id)
 
                      
-#list keyrings
-#instantiate keyring
-# self._as_parameter_ = kid <- allows to be passed in to ctypes
-#instantiate key
 
-#__all__ = [Key, Keyring, create_key, get_key, get_keyrings]
 __all__ = [Key, Keyring]

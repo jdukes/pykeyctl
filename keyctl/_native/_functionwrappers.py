@@ -245,7 +245,7 @@ def request_key(descrip: [bytes],
 #------------------------------------------------------------------------------
 
 @error_checked
-def keyctl_get_keyring(key: [key_serial_t, int], create: [bool, int]=True):
+def keyctl_get_keyring(key: [key_serial_t, int], create: [bool, int]=False):
     """Get keyring by ID.
     
     This is a wrapper for the following function:
