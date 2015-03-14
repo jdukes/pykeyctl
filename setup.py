@@ -26,6 +26,7 @@ setup(name="keyctl",
           'console_scripts':[
               'staticresolver=keyctl.examples.staticresolver:main',
               'storedresolver=keyctl.examples.storedresolver:main',
+              'kmsresolver=keyctl.examples.kmsresolver:main',
           ]
       },
       keywords = "key management, keyctl",
