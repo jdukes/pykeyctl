@@ -136,10 +136,10 @@ keyutils.keyctl_get_security_alloc.argtypes = [key_serial_t, c_char_p_p ]
 # keyutils.recursive_session_key_scan.restype = ctypes.c_int
 # keyutils.recursive_session_key_scan.argtypes = [recursive_key_scanner_t func, void *data ]
 
-keyutils.find_key_by_type_and_desc.restype = key_serial_t
-keyutils.find_key_by_type_and_desc.argtypes = [ctypes.c_char_p,
-                                               ctypes.c_char_p,
-                                               key_serial_t]
+# keyutils.find_key_by_type_and_desc.restype = key_serial_t
+# keyutils.find_key_by_type_and_desc.argtypes = [ctypes.c_char_p,
+#                                                ctypes.c_char_p,
+#                                                key_serial_t]
 
 def validate_args(callargs, annotation):
     errors = ["%s is '%s' but should be one of '%s'" % (k,
