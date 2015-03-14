@@ -118,8 +118,8 @@ keyutils.keyctl_reject.argtypes = [key_serial_t,
 keyutils.keyctl_invalidate.restype = ctypes.c_long
 keyutils.keyctl_invalidate.argtypes = [key_serial_t]
 
-keyutils.keyctl_get_persistent.restype = ctypes.c_long
-keyutils.keyctl_get_persistent.argtypes = [uid_t, key_serial_t]
+# keyutils.keyctl_get_persistent.restype = ctypes.c_long
+# keyutils.keyctl_get_persistent.argtypes = [uid_t, key_serial_t]
 
 keyutils.keyctl_describe_alloc.restype = ctypes.c_int
 keyutils.keyctl_describe_alloc.argtypes = [key_serial_t, c_char_p_p ] 
