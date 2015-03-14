@@ -192,7 +192,7 @@ def wrapped_string_reader(fn, key):
 def add_key(descrip,
              payload,
              key_type = b"user",
-             keyring = -4) -> key_serial_t:
+             keyring = -4):
     """Add a key to a keyring. 
 
     This is a wrapper for the following function:
@@ -209,7 +209,7 @@ def add_key(descrip,
 def request_key(descrip,
                  callout_info = None,
                  key_type = b"user",
-                 dest_keyring = -4) -> key_serial_t:
+                 dest_keyring = -4):
     """Find or generate a key and add it to the dest_keyring.
 
     This is a wrapper for the following function:
@@ -236,7 +236,7 @@ def keyctl_get_keyring(key, create=False):
 
 
 @error_checked
-def keyctl_join_session_keyring(name = None) -> key_serial_t:
+def keyctl_join_session_keyring(name = None):
 
     """Join a session keyring by name, or make an anonymous one.
 
@@ -274,7 +274,7 @@ def keyctl_revoke(key):
 
 
 @error_checked
-def keyctl_chown(key, uid, gid) -> ctypes.c_long:
+def keyctl_chown(key, uid, gid):
     """Change ownership of a key. 
 
     Either one of uid or gid can be set to -1 to suppress that change.
@@ -287,7 +287,7 @@ def keyctl_chown(key, uid, gid) -> ctypes.c_long:
 
 
 @error_checked
-def keyctl_chmod(key, perm) -> ctypes.c_long:
+def keyctl_chmod(key, perm):
     """Change the permissions of a key.
     
     This is a wrapper for the following function:
@@ -298,7 +298,7 @@ def keyctl_chmod(key, perm) -> ctypes.c_long:
 
 
 @error_checked
-def keyctl_describe(key) -> bytes:
+def keyctl_describe(key):
     """Get a summary of key attributes.
 
     A successful call will return a bytes of the following format:
@@ -312,7 +312,7 @@ def keyctl_describe(key) -> bytes:
 
 
 @error_checked
-def keyctl_clear_keyring(ringid) -> ctypes.c_long:
+def keyctl_clear_keyring(ringid):
     """Clear a keyring by id.
 
     This is a wrapper for the following function:
@@ -324,7 +324,7 @@ def keyctl_clear_keyring(ringid) -> ctypes.c_long:
 
 @error_checked
 def keyctl_link(key,
-                ringid) -> ctypes.c_long:
+                ringid):
 
     """Link a key to a keyring.
 
@@ -337,7 +337,7 @@ def keyctl_link(key,
 
 @error_checked
 def keyctl_unlink(key,
-                  ringid) -> ctypes.c_long:
+                  ringid):
     """Remove a key from a keyring given permission to modify the keyring.
 
     This is a wrapper for the following function:
@@ -351,7 +351,7 @@ def keyctl_unlink(key,
 def keyctl_search_keytree(ringid,
                           key_type,
                           description,
-                          destringid) -> key_serial_t:
+                          destringid):
     """Search src_keyring tree for a key and add it to the dest_keyring:
 
     This is a wrapper for the following function:
@@ -362,7 +362,7 @@ def keyctl_search_keytree(ringid,
 
 
 @error_checked
-def keyctl_read(key) -> bytes:
+def keyctl_read(key):
     """Return the payload for a key. 
 
     Get the key payload for a given key id. In Python this is
@@ -389,7 +389,7 @@ def keyctl_session_to_parent():
 @error_checked
 def keyctl_instantiate(key,
                        payload,
-                       ringid) -> ctypes.c_long:
+                       ringid):
     """Instantiate a partially constructed key.
 
     Assign the value payload to the key in keyring.
@@ -416,7 +416,7 @@ def keyctl_instantiate(key,
 @error_checked
 def keyctl_negate(key,
                   timeout,
-                  ringid = None ) -> ctypes.c_long:
+                  ringid = None ):
     """Negate the initialization of a key.
 
     If a keyring is specified and not None the key will also be linked
@@ -434,7 +434,7 @@ def keyctl_negate(key,
 def keyctl_reject(key,
                   timeout,
                   error,
-                  ringid = None ) -> ctypes.c_long:
+                  ringid = None ):
     """Reject the initialization of a key.
 
     If a keyring is specified and not None the key will also be linked
@@ -450,7 +450,7 @@ def keyctl_reject(key,
                                   
 
 @error_checked
-def keyctl_set_req_keyring(reqkey_defl) -> ctypes.c_long:
+def keyctl_set_req_keyring(reqkey_defl):
     """Set the default request-key destination keyring.
 
     The following constants define which keyring to assign as default:
@@ -481,9 +481,8 @@ def keyctl_get_default_req_keyring():
 
 
 @error_checked
-@input_validated
 def keyctl_set_timeout(key,
-                       timeout) -> ctypes.c_long:
+                       timeout):
     """Set the timeout on a key.
                  
     This is a wrapper for the following function:
@@ -494,7 +493,7 @@ def keyctl_set_timeout(key,
 
 
 @error_checked
-def keyctl_assume_authority(key) -> ctypes.c_long:
+def keyctl_assume_authority(key):
     """Assume the authority granted to instantiate a key.
 
     This is a wrapper for the following function:
@@ -505,7 +504,7 @@ def keyctl_assume_authority(key) -> ctypes.c_long:
     return keyutils.keyctl_assume_authority(key)
 
 @error_checked
-def keyctl_get_security_context(key) -> bytes:
+def keyctl_get_security_context(key):
     """Get the LSM security context attached to a key.
     
     Get a string represenatiation of the LSM security context.
@@ -522,7 +521,7 @@ def keyctl_get_security_context(key) -> bytes:
 # 				   unsigned ioc,
 
 @error_checked
-def keyctl_invaldate(key) -> ctypes.c_long:
+def keyctl_invaldate(key):
     """Invalidate this key.
 
     This is a wrapper for the following function:
