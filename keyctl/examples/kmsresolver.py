@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from sys import argv
-from os import setuid, setgid
+from os import setuid, setgid, getuid
 
 def usage():
     print("This program should never be run on it's own and will only work if "
