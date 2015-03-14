@@ -7,7 +7,7 @@ def usage():
     print("This program should never be run on it's own and will only work if "
           "run as root. It is intended to be run by the request-key process." )
     print("it's correct usage is:")
-    print("%s <key> <uid> <gid> <base64_encoded_encrypted_key>" % argv[0])
+    print("%s <key> <uid> <gid> <keyring> <base64_encoded_encrypted_key>" % argv[0])
     exit(1)
 
 def decrypt_key(b64_key):
