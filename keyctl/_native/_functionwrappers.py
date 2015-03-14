@@ -176,13 +176,15 @@ def error_checked(fn, *args, **kwargs):
 def wrapped_string_reader(fn, key):
     buf_len = fn(key, ctypes.c_char_p(), 0)
     error_check(buf_len, fn)
-    buf = bytes(buf_len)
+    buf = ctypes.create_string_buffer(buf_len)
     ret = fn(key, buf, buf_len)
     error_check(ret, fn)
     if ret < buf_len:
         raise UnderflowError(buf_len, ret)
-    return buf
-    
+    return buf.raw[:-1]
+    #this is for a char array not string. by default this func adds
+    #one byte for the \00. We don't need this extra byte. I'd rather
+    #alloc it and strip on return in case of stupid.
 
 ###############################################################################
 # Exported functions

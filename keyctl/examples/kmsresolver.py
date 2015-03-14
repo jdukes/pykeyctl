@@ -18,7 +18,7 @@ def decrypt_key(b64_key):
     print("key data type %s, data: %s" % (type(key_data), key_data))
     kms = boto.connect_kms()
     decrypted_blob = kms.decrypt(key_data)
-    return decrypted_blob["Plaintext"]
+    return bytes(decrypted_blob["Plaintext"])
 
 def main():
     if (getuid() != 0) or (len(argv) < 5):
@@ -35,7 +35,7 @@ def main():
     print(type(b64_key))
     payload = decrypt_key(b64_key)
     k = Key(keyid)
-    k.instantiate(bytes(payload), keyring)
+    k.instantiate(payload, keyring)
 
     
 if __name__ == "__main__":
