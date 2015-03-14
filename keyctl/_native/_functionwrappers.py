@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import unicode_literals
+from __future__ import unicode_literals, func_annotations
 
 import errno
 import ctypes

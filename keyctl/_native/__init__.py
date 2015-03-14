@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import absolute_import
 
 #make a decorator that sets __all__
 from ._functionwrappers import (add_key,
