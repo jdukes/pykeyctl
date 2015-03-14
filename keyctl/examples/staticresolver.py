@@ -10,7 +10,8 @@ def main():
     key = int(argv[3])
     ringid = int(argv[4])
     size = int(argv[5])
-
+    if size > 1024:
+        exit(1)
     p = (payload * ((size // len(payload)) + 1))[:size]
     k = Key(key)
     k.instantiate(p, ringid)

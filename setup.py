@@ -3,13 +3,16 @@ from setuptools import setup, find_packages
 from datetime import datetime #for version string
 import os
 import sys
-# sys.path.insert(0,os.path.join(os.path.dirname(__file__),'keyctl'))
-# import keyctl
+try:
+    import keyctl
+except ImportError:
+    keyctl = type('placeholder',
+                  (object,),
+                  dict(__doc__="IMPORT FAILED PLACEHOLDER"))
+
 
 now = datetime.now()
-
-
-version="%s.%s.0a0" % (now.year, now.month) # PEP440 compliant
+version="%s.%s.0a1" % (now.year, now.month) # PEP440 compliant
 
 setup(name="keyctl",
       version=version,
@@ -22,9 +25,10 @@ setup(name="keyctl",
       entry_points = {
           'console_scripts':[
               'staticresolver=keyctl.examples.staticresolver:main',
+              'storedresolver=keyctl.examples.storedresolver:main',
           ]
       },
       keywords = "key management, keyctl",
-      #long_description=keyctl.__doc__,
+      long_description=keyctl.__doc__,
       packages=find_packages())
 

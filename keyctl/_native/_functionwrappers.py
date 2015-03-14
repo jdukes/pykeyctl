@@ -11,7 +11,8 @@ from .._exceptions import *
 
 from .defines import *
 
-from decorator import decorator, FunctionMaker #dependancy
+from decorator import decorator 
+
 
 keyutils = ctypes.CDLL(find_library('keyutils'), use_errno=True)
 
