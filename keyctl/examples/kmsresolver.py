@@ -15,7 +15,7 @@ def decrypt_key(b64_key):
     from base64 import b64decode
     import boto
     key_data = b64decode(b64_key)
-    print(type(key_data))
+    print("key data type %s, data: %s" % (type(key_data), key_data))
     kms = boto.connect_kms()
     decrypted_blob = kms.decrypt(key_data)
     return decrypted_blob["Plaintext"]
