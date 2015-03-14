@@ -24,8 +24,8 @@ def main():
         usage()
     uid = int(argv[2])
     gid = int(argv[3])
-    setuid(uid)
     setgid(gid)
+    setuid(uid)
     keyid = int(argv[1])
     keyring = int(argv[4])
 
