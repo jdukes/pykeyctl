@@ -1,5 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
+from __future__ import print_function
 from sys import argv
 from os import setuid, setgid, getuid
 
@@ -14,6 +15,7 @@ def decrypt_key(b64_key):
     from base64 import b64decode
     import boto
     key_data = b64decode(b64_key)
+    print(type(key_data))
     kms = boto.connect_kms()
     decrypted_blob = kms.decrypt(key_data)
     return decrypted_blob["Plaintext"]
@@ -31,9 +33,10 @@ def main():
 
     from keyctl import Key #only import other deps after we've dropped privs
     b64_key = argv[5]
+    print(type(b64_key))
     payload = decrypt_key(b64_key)
     k = Key(keyid)
-    k.instantiate(payload, ringid)
+    k.instantiate(bytes(payload), keyring)
 
     
 if __name__ == "__main__":
