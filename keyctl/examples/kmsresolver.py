@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 from __future__ import print_function
 from sys import argv
@@ -19,7 +19,6 @@ def decrypt_key(b64_key):
     kms = boto.connect_kms()
     decrypted_blob = kms.decrypt(key_data)
     return decrypted_blob["Plaintext"]
-    
 
 def main():
     if (getuid() != 0) or (len(argv) < 5):
