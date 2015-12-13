@@ -30,19 +30,23 @@ class Key(object):
         #create metaclass that determines if key or keyring and inits
         #correctly
         self.id = id
-        self._as_parameter_ = self.id
+        self._as_parameter_ = self.id  # this defines how it's passed
+                                       # to ctypes functions
 
     def __repr__(self):
         return "<%s(%d)>" % (self.__class__.__name__, self.id)
 
+    def __del__(self):
+        keyctl_unlink(self.id)
+
     @classmethod
     def request(cls, descrip, callout_info, key_type=b"user", dest_keyring=-4):
         #this sucks, do this in a better way
-        if type(descrip) == "str":
+        if type(descrip) != bytes:
             descrip = descrip.encode('utf8')
-        if type(callout_info) == "str":
+        if type(callout_info) != bytes:
             callout_info = callout_info.encode('utf8')
-        if type(key_type) == "str":
+        if type(key_type) != bytes:
             key_type = key_type.encode('utf8')
         key = request_key(descrip, callout_info, key_type, dest_keyring)
         return cls(key)
@@ -59,7 +63,7 @@ class Key(object):
         return cls(key)
 
     @property
-    def descrip(self):
+    def props(self):
         if self.id:
             descrip = keyctl_describe(self.id).decode('utf8')
             return { k:v for k,v in zip(("type",
@@ -69,15 +73,19 @@ class Key(object):
                                          "description"),
                                         descrip.split(";"))}
         else:
-            return None
+            return None  # we should raise an exception here
+
+    @property
+    def descrip(self):
+        return self.props["description"]
 
     @property
     def type(self):
-        return self.descrip["type"]
+        return self.props["type"]
     
     @property
     def uid(self):
-        return int(self.descrip["uid"])
+        return int(self.props["uid"])
 
     @uid.setter
     def uid(self, val):
@@ -86,7 +94,7 @@ class Key(object):
 
     @property
     def gid(self):
-        return int(self.descrip["gid"])
+        return int(self.props["gid"])
 
     @gid.setter
     def gid(self, val):
@@ -94,7 +102,7 @@ class Key(object):
 
     @property
     def perm(self):
-        return self.descrip["perm"]
+        return self.props["perm"]
 
     #add perm setter
 
