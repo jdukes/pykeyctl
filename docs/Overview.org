@@ -1,0 +1,978 @@
+#+TITLE: Linux Kernel Secret Caching Service
+#+AUTHOR: Josh Dukes
+#+EMAIL: hex@neg9.org
+
+* Abstract
+Over the course of three weeks I explored the possiblity of creating
+system that emulates the functionality of DPAPI (the Windows Data
+Protection API) in Linux. The most promising option I found was to
+build a system on top of the Kernel Key Retention Service called
+keyctl. 
+
+The following is a breif introduction to the history of the service,
+current usage, interacting with it from the command line, and
+constructing proof of concept key resolvers, and using that PoC
+programmatically. At the end I will briefly discuss some of the
+possible use cases for the concepts outlined in the rest of the
+document.
+
+* Keyctl (History and Usage)
+Introduced in 2004, Linux keyctl "allows cryptographic keys,
+authentication tokens, cross-domain user mappings, and similar to be
+cached in the kernel for the use of filesystems and other kernel
+services." [fn:1] Put simply, keys are simply structured memory held
+in and secured by the kernel. They represent an arbitrary data store
+that can be restricted to a user, group, process, thread, and/or time
+(among other things).
+
+Initially designed to address the secure retention
+of keys for encrypted file systems, it is also used to store other
+sensitive data such as kerberos keys. It's also used, on occasion, to
+store less sensitive or non-sensitive data such as NFS id resolution.
+
+The design of the resolution system is elegant in it's
+simplicity. User calls to the kernel for key resolution result in
+calls out to userland resolver code. This allows a developer to write
+a proof of concept in any language that is optimal for rapid
+development, and a production version in any language that best
+fulfills the role based on design criteria. 
+
+The system is exposed via a Linux syscall which is wrapped by a C
+library. This makes it relatively easy to create modules for any
+language, allowing the same language flexibility provided by the
+resolver to exist for all interactions. 
+
+Though it is used by several critical components of the Linux software
+environment (Samba, NFS, etc), it's also not well known. Keyctl is one
+of the Kernel's more interesting secrets. 
+
+* Command Line interaction
+:PROPERTIES:
+:header-args: :headers :results verbatim drawer
+:END:
+
+The syscall wrapper, stand-alone command line applications, and all
+user-space resolution code is provided by the keyutils package. The
+keyctl binary exposes exposes the functionality provided by the
+syscall to the shell. Interacting with the system is straight forward.
+
+** show keys
+To view the current state of the keyring (that is, what keys we have
+access to right now), we can use the `show` option of the `keyctl`
+command:
+
+#+name: show_keys
+#+begin_src sh
+  keyctl show
+#+end_src
+
+#+RESULTS: show_keys
+:RESULTS:
+Session Keyring
+ 694337165 --alswrv   1000 65534  keyring: _uid_ses.1000
+ 571672433 --alswrv   1000 65534   \_ keyring: _uid.1000
+:END:
+
+If software is using the system, we may see keys here. In my
+configuration after a fresh boot we only see the session keyring and
+user keyring. Keyrings are simply a special type of key that holds
+other keys. 
+
+** add keys
+We can add keys with the `add` option to the `keyctl` command. The
+option takes several arguments:
+
+#+name: keyctl_add_help
+#+begin_example
+  keyctl add <type> <desc> <data> <keyring>
+#+end_example
+
+The `type` describes the type of key to be used. The `user` type can
+be used for arbitrary user defined keys. For our purposes all keys
+will be `user` keys. Kernel documentation describes key types in
+greater detail, further discussion of key types is beyond the scope of
+this document. 
+
+The `desc` argument is the description. It is an identifier that can be used to
+look up keys. Later, when discussing resolvers, we will talk about
+it's other purpose. For now, treat this as an arbitrary string.
+
+The key's `data` is the content of the key. this is what we're storing
+inside of it.
+
+The `keyring` is the container in to which the key is going. Several
+keyrings exist, allowing keys to be placed in containers accessible
+only to the user, the session, the process, or the thread. More detail
+on these containers can be found in the kernel documentation and is
+out of scope for this document. For our purposes we will only use the
+session and user keyrings.
+
+The following command adds a user key with the description "test key"
+and the content "this is some data" to the user's keyring:
+
+#+name: add_key
+#+headers: :var NAME="test key"
+#+headers: :var DATA="this is some data"
+#+begin_src sh
+  keyctl add user "$NAME" "$DATA" @u  
+#+end_src
+
+#+RESULTS: add_key
+: 498899265
+
+The command returns a key identifier: a number we can use to look up
+the key in the future. Lets look at my keyring now:
+
+#+call: show_keys()
+
+#+RESULTS:
+: Session Keyring
+:  694337165 --alswrv   1000 65534  keyring: _uid_ses.1000
+:  571672433 --alswrv   1000 65534   \_ keyring: _uid.1000
+:  498899265 --alswrv   1000  1000       \_ user: test key
+
+Notice that the new key is now attached to my keyring. 
+
+** print data in keys 
+With the new key added we can now look inside the key to find what
+data we stored in it. This is done with the `print` operation:
+
+#+name: print_key
+#+headers: :var KEYNUM=add_key()
+#+begin_src sh 
+  keyctl print $KEYNUM
+#+end_src
+
+#+RESULTS: print_key
+: this is some data
+
+We see that the content we put in is the content we print out, exactly
+as expected. Content may be human readable strings or arbitrary
+bytes. The `padd` command allows you to pass data to the key via a
+pipe instead of as an argument. Lets add some random bytes and see
+what happens:
+
+#+name: padd_key
+#+headers: :var NAME="test blob key"
+#+begin_src sh 
+  dd if=/dev/random count=10 bs=1 | keyctl padd user "blob key" @u
+#+end_src
+
+#+RESULTS: padd_key
+: 480064895
+
+When we print out our new "blob key," we see that it's helpfully hex
+encoded:
+
+#+name: print_blob_key
+#+headers: :var KEYNUM=padd_key()
+#+begin_src sh 
+  keyctl print $KEYNUM
+#+end_src
+
+#+RESULTS: print_blob_key
+: :hex:ffb5d4f9297f9473d57b
+
+** deleting keys
+Lets start by looking at our keyring again:
+
+#+call: show_keys()
+
+#+RESULTS:
+:RESULTS:
+"Session Keyring
+ 694337165 --alswrv   1000 65534  keyring: _uid_ses.1000
+ 571672433 --alswrv   1000 65534   \\_ keyring: _uid.1000
+ 498899265 --alswrv   1000  1000       \\_ user: test key
+ 354275757 --alswrv   1000  1000       \\_ user: blob key
+"
+:END:
+
+We see both our "test key" and our "blob key" are in our keyring. Lets
+clean it up a bit:
+
+#+name: del_key
+#+headers: :var KEYNUM=add_key()
+#+begin_src sh
+  keyctl unlink $KEYNUM
+#+end_src
+
+#+RESULTS: del_key
+:RESULTS:
+1 links removed
+:END:
+
+#+call: del_key(KEYNUM=padd_key())
+
+#+RESULTS:
+:RESULTS:
+"1 links removed
+"
+:END:
+
+Now our keyrings will be back to their original state:
+
+#+call: show_keys()
+
+#+RESULTS:
+:RESULTS:
+"Session Keyring
+ 694337165 --alswrv   1000 65534  keyring: _uid_ses.1000
+ 571672433 --alswrv   1000 65534   \\_ keyring: _uid.1000
+"
+:END:
+
+** resolve a key
+So far we've talked about manually adding, looking at, and deleting
+keys. The key resolution system lets us write or use user-space code
+to add special keys to the kernel cache. 
+
+A "debug" resolver is included by default in the keyctl package and is
+defined in the resolver configuration. We can use this to demonstrate
+using a resolver from the command line:
+
+#+name: req_key
+#+headers: :var DESC="debug:test"
+#+headers: :var CALLOUT="some content"
+#+begin_src sh
+  keyctl request2 user "$DESC" "$CALLOUT"
+#+end_src
+
+#+RESULTS: req_key
+:RESULTS:
+254682454
+:END:
+
+Now that the key has been resolved, we can print it's contents:
+
+#+call: print_key(KEYNUM=req_key())
+
+#+RESULTS:
+:RESULTS:
+"Debug some content
+"
+:END:
+
+The "debug" resolver drops the content of the "callout info" (here,
+"some content") in to the key:
+
+#+begin_src sh
+    keyctl instantiate $1 "Debug $3" $4 || exit 1
+#+end_src
+
+This brings us to a discussion of how the resolution system works.
+
+* The Key Resolution System
+:PROPERTIES:
+:hidesource: true
+:END:
+#+CAPTION: Request Key flow
+#+NAME: fig:1
+#+HEADERS: :exports results
+#+begin_src ditaa :file request-key.png
+  +--------------+             +---------------+           +--------------------+
+  | user code    |             |     kernel    |           |  /sbin/request_key |
+  +-------+------+             +-------+-------+           +---------+----------+
+          |                            |                             |           
+          |      1) request_key        |                             |           
+          |--------------------------->|                             |           
+          |                            |                             |           
+          |     2) key found           |     2) key not found        |           
+          |<---------------------------+---------------------------->|
+          |                            |                             |  3) find resolver in       
+          |                            |                             +---------------------------+
+          |                            |                             |     /etc/request_key.conf |
+          |                            |                             |                           |
+          |                            |                             |                           |
+          |                            |                             |                           |
+          |                            |                             |<--------------------------+
+          |                            |                             |                            
+          |                            |                             |  4) call resolver 
+          |                            |                             +---------------------------+
+          |                            |                             |     to get key data       |
+          |                            |                             |                           |
+          |                            |                             |                           |
+          |                            |                             |<--------------------------+
+          |                            |    5) instantiate key       |                          
+          |                            |<----------------------------+
+          |                            |       with key data         |
+          |   6) Return key            |                             |
+          |<---------------------------+                             |
+          |                            |                             |
+          |                            |                             |
+          |                            |                             |
+          |                            |                             |
+
+#+end_src
+
+#+RESULTS: fig:request-key
+[[file:request-key.png]]
+
+Figure 1 illustrates the path taken by the "debug" resolver from the
+key resolution example. Here's a more in depth explanation:
+
+1. The application calls request the request key function from
+   libkeyutils.so:
+   #+begin_src C
+     request_key("user", "debug:test", "some content", 0) 
+   #+end_src
+   
+   This is a wrapper for the syscall, signaling to the kernel to
+   handle the request.
+
+2. The kernel handles the request
+   a. If the key is found, the kernel returns it immediately.
+   b. If the key is not found, the kernel calls the user space resolver.
+
+3. The user space resolver ([[/sbin/request-key]]) finds the correct
+   resolution path based on the key type, operation, description
+   argument, and callout info argument as defined in
+   /etc/request-key.conf:
+
+   #+begin_example
+     #OP     TYPE    DESCRIPTION     CALLOUT INFO    PROGRAM ARG1 ARG2 ARG3 ...
+     #====== ======= =============== =============== ===============================
+     ...
+     create       user    debug:*         *               /usr/share/keyutils/request-key-debug.sh %k %d %c %S
+   #+end_example
+
+   If the resolver cannot be found, request-key returns an error that
+   is propagated back through the kernel to the user. 
+
+4. If the resolver is found, request-key calls the resolver with the
+   arguments defined in /etc/request-key.conf.
+
+5. The resolver instantiates the key via a syscall, signaling the
+   kernel to return the key identifier to the user. If the resolver
+   fails before instantiating the key, an error is propagated back to
+   the user via the kernel. Verbose errors may be placed in kernel
+   logs depending on the configuration in /etc/request-key.conf
+
+6. The key identifier is returned to the user. The user can now use
+   this identifier to read the key.
+
+In reality this explanation is a little bit over simplified. The
+actual process is a bit more complex, but the system can be treated as
+though this is accurate for the purposes of the rest of the
+document. If more information is needed the flow is described more
+accurately in the kernel's
+Documentation/security/keys-request-key.txt.
+
+* Writing Resolvers
+As explained in the previous section, all resolution code is
+user-space. Resolvers can be added or modified without modifying the
+kernel. Through the remainder of this section we will explore example
+resolvers starting with a basic "hello world" and ending with a
+resolver that leverages Amazon's Key Management Service to provide
+cloud based DPAPI-like functionality.
+
+** debugging a resolver
+Before trying to write a resolver, it's important to know how to debug
+one. Because verbose error messages do not propagate back to users, it
+can be difficult to identify resolver issues without a greater
+understanding of the system. 
+
+*** using syslog
+The man pages for request-key.conf notes one way to debug resolvers:
+
+#+begin_example
+  If the program name is prefixed with a pipe bar character '|', then
+  the program will be forked and exec'd attached to three pipes. The
+  callout information will be piped to it on it's stdin and the intended
+  payload data will be retrieved from its stdout. Anything sent to
+  stderr will be posted in syslog. 
+#+end_example
+
+To demonstrate this functionality we can write a failing resolver,
+configure it in request-key.conf, and try it out. We'll create our
+failing resolver in /usr/local/sbin:
+
+[[/usr/local/sbin/failing_resolver]]
+#+name: hello_resolver
+#+headers: :shebang "#!/bin/bash"
+#+headers: :tangle /sudo:root@localhost:/usr/local/sbin/failing_resolver
+#+begin_src sh
+  echo "$@" >&2
+  echo "error message output" >&2
+  exit 1
+
+#+end_src
+
+After creating the script we would need to set execute
+permissions. We're going to look at a couple of behaviors so do not
+make this script executable.
+
+We will configure the resolver by adding the following line to
+/etc/request-key.conf:
+
+#+begin_example
+  create  user    fail:*          *               |/usr/local/sbin/failing_resolver %k %u %S %c
+#+end_example
+
+Watch the system log. On my system journalctl -f, and request a key:
+
+#+call: req_key(DESC="fail:test", CALLOUT="failing callout")
+
+#+RESULTS:
+: nil
+
+In our logs we immediately see the first error:
+
+#+begin_example
+  Jan 06 18:27:28 wpad request-key[26180]: /etc/request-key.conf:44: Failed to execute '/usr/local/sbin/failing_resolver': Permission denied
+#+end_example
+
+As expected the resolver failed. Fix the permissions and try again. 
+
+#+name: make_executable
+#+headers: :var TARGET="/usr/local/sbin/failing_resolver"
+#+headers: :session sudo
+#+headers: :results silent
+#+begin_src sh
+  sudo chmod +x "$TARGET"
+#+end_src
+
+Once complete we can perform the request again:
+
+#+call: req_key(DESC="fail:test", CALLOUT="failing callout")
+
+#+RESULTS:
+: nil
+
+If you saw nothing in the logs, don't be surprised. Key resolution
+failures are cached for a short period of time or, as described in
+kernel documentation, they are "negatively instantiated." To get
+around this either unlink the offending key, change the description,
+or wait until the key expires. 
+
+Lets run the command again while watching the logs:
+
+#+call: req_key(DESC="fail:test2", CALLOUT="failing callout")
+
+#+RESULTS:
+: nil
+
+Now that the actual executable has run we see the verbose error
+message we were looking for:
+
+#+begin_example
+  Jan 06 18:52:56 wpad request-key[27567]: Child: 1045884694 1000 694337165 failing callout
+  Jan 06 18:52:56 wpad request-key[27567]: Child: error message output
+#+end_example
+
+
+*** using a wrapper script
+While the syslog method works for resolvers that take callout info
+from standard in, it doesn't help us with resolvers that instantiate
+the key themselves. For this we can use a debug wrapper.
+
+The following wrapper script that captures debug output and logs it so
+we can review it after a failure:
+
+[[/sudo:root@localhost:/usr/local/sbin/debug_key_request.sh][/usr/local/sbin/debug_key_request.sh]]
+#+name: debug_key_request
+#+headers: :shebang "#!/bin/bash -vxxx"
+#+headers: :tangle /sudo:root@localhost:/usr/local/sbin/debug_key_request.sh
+#+begin_src sh
+  
+  LOGFILE=/tmp/request-key-debug.log
+  exec 2>&1 > $LOGFILE
+
+  PROG=$1
+  shift
+
+  echo "PWD=`pwd`"
+  echo "called: $PROG $@"
+
+  $PROG $@  >> $LOGFILE 2>&1
+  cat $LOGFILE >&2
+#+end_src
+
+After we create it, lets make sure it's executable:
+
+#+call: make_executable(TARGET="/usr/local/sbin/debug_key_request.sh")
+
+We can then prepend this wrapper in /etc/request-key.conf to any
+offending resolvers:
+
+#+begin_example
+create	user	fail:*		*	        /usr/local/sbin/debug_key_request.sh /usr/local/sbin/failing_resolver %k %u %S %c
+#+end_example
+
+Once added, we can run our failing resolver again:
+
+#+call: req_key(DESC="fail:test", CALLOUT="failing callout")
+
+#+RESULTS:
+: nil
+
+We can now check the logs to find out debugging information:
+
+[[/tmp/request-key-debug.log]]
+#+begin_example
+  PWD=/
+  called: /usr/local/sbin/failing_resolver 472000891 1000 694337165 failing callout
+  472000891 1000 694337165 failing callout
+  error message output
+#+end_example
+
+** A hello world resolver
+The absolute most basic "hello world" resolver can be defined entirely
+in /etc/request-key.conf:
+
+#+begin_example
+  create	user	hello:*		*		|/usr/bin/echo -n "hello world"
+#+end_example
+
+Lets create a key using this resolver, Then read the contents of that key:
+
+#+call: print_key(KEYNUM=req_key(DESC="hello:world", CALLOUT=""))
+
+#+RESULTS:
+: hello world
+
+We can explore a more advanced example by instantiating the key in
+bash and performing some operation based on uesr input:
+
+[[/usr/local/bin/hello_resolver]]
+#+name: hello_resolver
+#+headers: :shebang "#!/bin/bash"
+#+begin_src sh :tangle /sudo:root@localhost:/usr/local/bin/hello_resolver
+  # hello world key init
+  # $0 <keyid> <descrip> <keyring>
+
+  TO=$(echo $2| cut -f2 -d':')
+  keyctl instantiate $1 "hello $TO" $3
+#+end_src
+
+After we make this executable...
+
+#+call: make_executable(TARGET="/usr/local/bin/hello_resolver")
+
+... and add it to request-key.conf...
+
+#+begin_example
+  create  user    hello:*        *                /usr/local/bin/hello_resolver %k %d %S
+#+end_example
+
+... we can test this new, more complex, resolver:
+
+#+call: print_key(KEYNUM=req_key(DESC="hello:more complex world", CALLOUT=""))
+
+#+RESULTS:
+: hello more complex world
+
+** A python hello world resolver
+If we want to write a more complex resolver, we'll have to do it in a
+better language than bash. Fortunately it's fairly simple to use
+Python cytpes to expose the functionality of libkeyutils. The
+following script implements the same "hello world" functionality as
+the bash script above in a more powerful language:
+
+[[/usr/local/sbin/hello_resolver]]
+#+name: hello_resolver
+#+headers: :shebang "#!/usr/bin/env python3" 
+#+begin_src python :tangle /sudo:root@localhost:/usr/local/bin/hello_resolver.py
+  from sys import argv
+  import ctypes
+  from ctypes.util import find_library
+
+  key_serial_t = ctypes.c_int32
+
+  keyutils = ctypes.CDLL(find_library('keyutils'), use_errno=True)
+  keyutils.keyctl_instantiate.restype = ctypes.c_long
+  keyutils.keyctl_instantiate.argtypes = [key_serial_t,
+                                          ctypes.c_void_p,
+                                          ctypes.c_size_t,
+                                          key_serial_t]
+
+  def main():
+      key = int(argv[1])
+      descrip = argv[2].split(':')[1]
+      ringid = int(argv[3])
+      p = ("hello %s" % descrip).encode()
+      if len(p) > 256:
+          exit(1)
+      keyutils.keyctl_instantiate(key, p, len(p), ringid)
+
+  if __name__ == "__main__":
+      main()
+      
+#+end_src
+
+** stored resolver
+Now that we've established the ability to write a basic resolver, we
+can extend this to write something that's actually useful. The
+following example creates keys on the fly, persists them to disk, and
+recovers them on request:
+
+[[/usr/local/sbin/storedresolver]]
+#+name: storedresolver
+#+headers: :shebang "#!/usr/bin/env python"
+#+headers: :tangle /sudo:root@localhost:/usr/local/sbin/storedresolver
+#+begin_src python
+  import fcntl
+  from sys import argv
+  from os import getuid, setuid, setgid, chown, chmod, fstat, path
+  from datetime import datetime
+  from binascii import unhexlify, hexlify
+
+  import ctypes
+  from ctypes.util import find_library
+
+  key_serial_t = ctypes.c_int32
+
+  keyutils = ctypes.CDLL(find_library('keyutils'), use_errno=True)
+  keyutils.keyctl_instantiate.restype = ctypes.c_long
+  keyutils.keyctl_instantiate.argtypes = [key_serial_t,
+                                          ctypes.c_void_p,
+                                          key_serial_t]
+
+  KEYSTOREFILE = "/etc/keystore"
+  MAX_KEYSIZE = 1024*1024 
+
+
+  ###############################################################################
+
+
+  class KeyStoreEntry:
+
+      def __init__(self, uid, key, timestamp):
+          self.uid = int(uid)
+          self.key = unhexlify(key)
+          self.time = datetime.fromtimestamp(int(timestamp))
+
+      def __repr__(self):
+          return "<KeyStoreEntry '%s'>" % self
+
+      def __str__(self):
+          return "%s %s %s" % (self.uid,
+                               hexlify(self.key).decode('ascii'),
+                               int(self.time.timestamp()))
+
+
+  class KeyStore:
+
+      def __init__(self, keystore, key_size):
+          self.fd = None
+          self.entries = []
+          self.key_size = int(key_size)
+          assert self.key_size <= MAX_KEYSIZE, "Key size too big"
+          if not path.exists(keystore):
+              with open(keystore,'x') as touch:
+                  touch.write('')
+              chown(keystore, 0, 0)
+              chmod(keystore, 0o600)
+          self.fd = open(keystore, 'r+')
+          s = fstat(self.fd.fileno())
+          fcntl.lockf(self.fd, fcntl.LOCK_EX)
+          assert (s.st_uid == 0 and
+                  s.st_gid == 0 and
+                  not ((s.st_mode & 0o7777) ^ 0o0600)),\
+              "Invalid permissions on %s" % keystore
+          for line in self.fd:
+              uid, key, timestamp = line.split(' ')
+              self.entries.append(KeyStoreEntry(uid, key, timestamp))
+
+      def add_key_for(self, uid):
+          with open('/dev/urandom','rb') as r:
+              key = r.read(self.key_size)
+          self.entries.append(KeyStoreEntry(uid,
+                                            hexlify(key),
+                                            datetime.now().timestamp()))
+          return key
+
+      def __getitem__(self, uid):
+          try:
+              return next(e.key for e in self.entries if e.uid == uid
+                          and len(e.key) == self.key_size)
+          except StopIteration:
+              key = self.add_key_for(uid)
+              self.write()
+              return key
+
+      def write(self):
+          self.fd.seek(0)
+          self.fd.write("\n".join("%s" % k for k in self.entries)) 
+
+      def __del__(self):
+          if self.fd:
+              fcntl.lockf(self.fd, fcntl.LOCK_UN)
+              self.fd.close()
+
+          
+  ###############################################################################
+
+  def usage():
+      print("This program should never be run on it's own and will only work if "
+            "run as root. It is intended to be run by the request-key process." )
+      print("it's correct usage is:")
+      print("%s <key> <uid> <gid>" % argv[0])
+      exit(1)
+
+
+  def find_or_make_key(uid, key_size):
+      keystore = KeyStore(KEYSTOREFILE, key_size)
+      payload = keystore[uid]
+      del(keystore)
+      return payload
+      
+      
+  def main():
+      if (getuid() != 0) or (len(argv) < 4):
+          usage()
+      keyid = int(argv[1])
+      uid = int(argv[2])
+      gid = int(argv[3])
+      ringid = int(argv[4])
+      key_size = argv[5]
+
+      payload = find_or_make_key(uid, key_size)
+      setgid(gid)
+      setuid(uid)
+      keyutils.keyctl_instantiate(keyid, payload, len(payload), ringid)
+
+  if __name__ == "__main__":
+      main()
+#+end_src
+
+This resolver stores keys in a location only readable by root. This
+means that such a resolver, or one like it, could be used to create
+and persist keys in a secure way across reboots. This proof of concept
+provides a first-draft solution to the long-standing problem of key
+storage on Linux systems.
+
+Lets give it a shot. First we make it executable:
+
+#+call: make_executable(TARGET="/usr/local/sbin/storedresolver")
+
+Then we add the resolver to /etc/request-key.conf:
+
+#+begin_example
+  create  user    stored:*        *               /usr/local/sbin/storedresolver %k %u %g %S %c
+#+end_example
+
+The final argument in the configuration, "%c", passes the user's
+provided callout info to the script. The user passes a number in this
+field to signal to the system the desired key size:
+
+#+call: print_key(KEYNUM=req_key(DESC="stored:key", CALLOUT="32"))
+
+#+RESULTS:
+: :hex:456d2bfa281acdb36d46045d97b4ce2c3135149d000ba9fa965280644d166e83
+
+On the first run, the stored resolver creates a key on the fly and
+stores it to /etc/keystore. On each subsequent request the key is
+recovered from the keystore and returned to the user.
+
+Since keys are not usually persisted, we can emulate a reboot by
+simply unlinking the key:
+
+#+call: del_key(KEYNUM=req_key(DESC="stored:key", CALLOUT="32"))
+
+#+RESULTS:
+: 1 links removed
+
+When we instantiate the key again with the same arguments, we will get
+the same key:
+
+#+call: print_key(KEYNUM=req_key(DESC="stored:key", CALLOUT="32"))
+
+#+RESULTS:
+: :hex:456d2bfa281acdb36d46045d97b4ce2c3135149d000ba9fa965280644d166e83
+
+** KMS Resolver
+Amazon's Key Management Service (KMS) allows users to encrypt and
+decrypt data using keys that cannot be directly accessed by hosts,
+access to which can be controlled external to the hosts. This provides
+an excellent platform for secure encryption and decryption. 
+
+Caching, however, is not built in to the system. This presents a
+challenge for short running applications, such as HTTP server CGI
+applications, that need to decrypt data, such as database
+credentials. One solution is to build a KMS resolver. 
+
+An additional benefit of a KMS resolver is that access to the metadata
+URL (http:169.254.169.254) can be blocked entirely for the user
+running the application via iptables rules, while still being
+accessible to the resolver itself (since the resolver runs as root,
+instead of apache/httpd/etc). 
+
+The following KMS resolver uses the `pykeyctl` wrapper library, which
+is a pythonic ctypes wrapper around libkeyutils:
+
+[[/usr/local/bin/kmsresolver]]
+#+name: kmsresolver
+#+headers: :shebang "#!/usr/bin/env python"
+#+headers: :tangle /sudo:root@localhost:/usr/local/bin/kmsresolver
+#+begin_src python 
+  from __future__ import print_function
+  from sys import argv
+  from os import setuid, setgid, getuid
+
+  def usage():
+      print("This program should never be run on it's own and will only work if "
+            "run as root. It is intended to be run by the request-key process." )
+      print("it's correct usage is:")
+      print("%s <key> <uid> <gid> <keyring> <base64_encoded_encrypted_key>" % argv[0])
+      exit(1)
+
+  def decrypt_key(b64_key):
+      from base64 import b64decode
+      import boto
+      key_data = b64decode(b64_key)
+      print("key data type %s, data: %s" % (type(key_data), key_data))
+      kms = boto.connect_kms()
+      decrypted_blob = kms.decrypt(key_data)
+      return bytes(decrypted_blob["Plaintext"])
+
+  def main():
+      if (getuid() != 0) or (len(argv) < 5):
+          usage()
+      uid = int(argv[2])
+      gid = int(argv[3])
+      setgid(gid)
+      setuid(uid)
+      keyid = int(argv[1])
+      keyring = int(argv[4])
+
+      from keyctl import Key #only import other deps after we've dropped privs
+      b64_key = argv[5]
+      print(type(b64_key))
+      payload = decrypt_key(b64_key)
+      k = Key(keyid)
+      k.instantiate(payload, keyring)
+
+      
+  if __name__ == "__main__":
+      main()
+#+end_src
+
+*** Setting things up
+To use this we first set up two instances: an encryption instance
+(which can represent a build server), and a decryption instance (which
+can represent a production web server). Create a KMS key and provide
+both instances access to the key. A detailed walk-through on using AWS
+to do this is beyond the scope of this document.
+
+**** Install dependencies
+For each instance install the base dependencies:
+
+#+begin_src sh
+  sudo aptitude update
+  sudo aptitude install python-pip keyutils
+  sudo pip install boto
+  git clone https://github.com/jdukes/pykeyctl
+  cd pykeyctl #change this to pip install
+  sudo python setup.py install
+#+end_src
+ 
+**** Verify instance access to the keys
+With dependencies installed, use the following quick script to verify
+both instances have access to the key:
+
+[[verify_key_access.py]]
+#+begin_src python :tangle verify_key_access
+  import boto
+  import base64
+
+  KEYID = "bdf4f9ea-0578-4ac5-a807-7a62bb60ec5e" 
+  kms = boto.connect_kms()
+  dk = kms.generate_data_key_without_plaintext(KEYID, number_of_bytes=1024)
+  b64dk = base64.b64encode(dk['CiphertextBlob'])
+  print(b64dk)
+
+  # CiCJNTYy2Iiu3nUbzGxoQI4qntX9/6HqdMgNysn/PeAK6BKRCQEBAQB4iTU2MtiIrt51G8xsaECOKp7V/f+h6nTIDcrJ/z3gCugAAARoMIIEZAYJKoZIhvcNAQcGoIIEVTCCBFECAQAwggRKBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDFlOtbQ5NAR46aZoMgIBEICCBBvRIeF7DKAgEjVB1vwSX6GagimkjUi58c8it4AmgaKq2KzXF+AsjiLHreNiDcD5a1RR0NH4UfkcEtK5DODEfj4yDrp+vfUTI8CLz2vQwvulUy6c24xLblAuBcA5k/CWxSiULfBetM/UzWjVIMS0bwBo1oIDjp98o/xw9mq3tWiakUDW2Ii6Bcuv9xc4eAk9C/faKizmgqI+BIEof8+Zl7HGbYIdqxy4dkwW1r3yVZ7GllGYwPJuo2O/qJrvCBafR/UzbCEFGvrzoI3HygQQ844t7EdrQGPw18zUSc0A46Va2NphAOMZsehJkrXt31TpGNXRMgKxYIrQe0gbvq2qPOjo4fBh5DM5V5MeceXo7axu52xvMYhgumCIIoMfjmLHwRVMU5ekWEfNbt8YdB7kUsWEobEh+a2JjDrbQFEZTB63pDR1XKjGZT/pfApdwAemKUoxOdZupbzF6xaadVreDmIG1Hen/g0arj4QLSfDtzm91svRc6x9J8O5WOwAjWJUIx0dg6NUKhGRp1jhtRYOXayPUrOQcS8nIWYo2SXoh5cip6A1cSzRTLw8C3VdpnaBleTqLf8vOAkZo0VaajWSWTk6GvKCtJOaOdNjA9nBsZl86ntqxqhc+7JmTYDjKxBFypgbTX3Mu19Qd0CZMSN2OJIQkd1rRiESXIJm6lMtBqMmywWwTN5AhIFTaxQntDGpucRX544VZg53jB/VZv23DcW1rSWnl5y6HEwOvVWsmhxV0zeWNtDBjvZVQlX1M3GnakwrlEmqhhHFmHIIUUWzxGdJu6zCRGLBs8lxtGGbXtxdDGw6V/fXwTdU210eCDkawfUHvP+4uHZxwl4acDovvP1IrQSN+Eh6NmiOg6860M6eDE3H6KnbyhbJAnMZ5PgPzUYfWa37WAd1c9prg9yeMcCJLAi7SI+M9K68heLVuH8eVPEi6CaUo5E0du6OlkbvWyiR8x9yDicsmqhNQWqCch5k0RQkqlfSEH06bH5z/q8/jfyf+ngz+v59SR+UicBchX2sTGoi6QTUpxHXPzFwQZHeEwoA/RFR9swsk5l2OIVoxfRHCVbN5Ykq2rsicsc5iOXK5tYpvwAqH8x11sF/jNIeczbWQHvHi61YouxE3YjkLxtA3/Q7H+ooW4W1M55x82ylsUHysREDeep6iE3X3JBKoOBJ5GSEkEXw8jP43pnW4fv/9z2VcTi30oVj6AWnQF/LT1dw00K7UxRsNCTCPxnRHdGdP5J3E+vMQ4F3VymDUj9Zb+OIJG0u03W0sqfpEARc77ximPZl9yzUJWdOI6KbLz5J8wC3WJQp3Jd1zplhXnozkN8ltpu8BASLCpiiDoFaw3VeGqZgw5dn6n7QP2COhCMFczmUrS7lO231BGVzS8aER0/UJRBQ/A6p
+
+  kms.decrypt(base64.b64decode(b64dk))["Plaintext"]
+#+end_src
+
+**** set up the KMS resolver
+Install the KMS resolver above to /usr/local/bin/kmsresolver, make it
+executable, and add it to request-key.conf:
+
+#+begin_example
+  create  user    kms:*           *               /usr/local/bin/kmsresolver %k %u %g %S %c
+#+end_example
+
+**** encrypt secrets on the encryption system
+Encrypt secret data from the encryption system. Encrypting secrets
+from a separate system from the production system ensures secrets are
+never stored, even temporarily, in plain text on the production
+system. This eliminates the risk of an attacker recovering plain text
+secrets from build files someone forgot to delete, or temp flies a
+developer did not realize were created.
+
+The following example script encrypts using a KMS key with the ID
+"bdf4f9ea-0578-4ac5-a807-7a62bb60ec5e":
+
+[[encrypt_secret.py]]
+#+begin_src python :tangle encrypt_secret
+  import boto
+  import base64
+
+  KEYID = "bdf4f9ea-0578-4ac5-a807-7a62bb60ec5e" 
+  kms = boto.connect_kms()
+  key_data = kms.encrypt(KEYID, "my key for encrypting user secrets")
+  b64data = base64.b64encode(key_data['CiphertextBlob'])
+  print(b64data)
+  # CiCJNTYy2Iiu3nUbzGxoQI4qntX9/6HqdMgNysn/PeAK6BKpAQEBAgB4iTU2MtiIrt51G8xsaECOKp7V/f+h6nTIDcrJ/z3gCugAAACAMH4GCSqGSIb3DQEHBqBxMG8CAQAwagYJKoZIhvcNAQcBMB4GCWCGSAFlAwQBLjARBAxgnhkdQEiHWOWt38YCARCAPfdv5IqdB3vElG4gISb5fVXeXpkb976Nvgh10Qnz1LDvB4W9d5+LEAIr7XNMHpwzm0ufl73VuUD//5cZeho=
+#+end_src
+
+The printed blob returned is the encrypted data. An in-depth
+explanation of KMS usage is beyond the scope of this document.
+
+**** Include the encrypted data in source
+Once encrypted, the now-secure secret can be placed in code that can
+be installed on the production server:
+
+[[demoapp.py]]
+#+begin_src python :tangle demoapp
+  from keyctl import Key
+
+  b64data = b"CiCJNTYy2Iiu3nUbzGxoQI4qntX9/6HqdMgNysn/PeAK6BKpAQEBAgB4iTU2MtiIrt51G8xsaECOKp7V/f+h6nTIDcrJ/z3gCugAAACAMH4GCSqGSIb3DQEHBqBxMG8CAQAwagYJKoZIhvcNAQcBMB4GCWCGSAFlAwQBLjARBAxgnhkdQEiHWOWt38YCARCAPfdv5IqdB3vElG4gISb5fVXeXpkb976Nvgh10Qnz1LDvB4W9d5+LEAIr7XNMHpwzm0ufl73VuUD//5cZeho="
+
+  k = Key.request(b"kms:mykey", callout_info=b64data)
+  print(k.read())
+  # "my key for encrypting user secrets"
+#+end_src
+
+Using this model developers can develop more secure code on Linux
+systems within AWS.
+
+* Additional Use Cases
+The vast potential of keyctl is, at this point, mostly
+untapped. Immediately I imagine writing a resolver to cache from my
+password manager, providing them only to applications launched from my
+window manager. I imagine creating a yubi-key or other hardware key
+manager focused resolver. In amusement I occasionally think of
+implementing a fully functional DPAPI in Linux based on dpapick, just
+to prove it's possible.
+
+Using SELinux security contexts, supported by keyctl, it's possible to
+do things that seem almost unimaginable such as secure keys in a way
+that make them inaccessible to an attacker even in limited cases of
+code execution. Were a kernel patch added to provide the PID and PPID
+as additional arguments to the resolver, it may be possible to do even
+more interesting things such as prompting a user with process
+information when keys are requested.
+
+The opportunities are many, and sometimes amusing.
+
+* Appendix 1: Security Notes
+Resolvers must be very closely examined as they are executed by the
+kernel as root. If any user has write permissions to a resolver or any
+library/code it includes, an attacker can execute arbitrary code as
+the kernel. Command injection, memory corruption, and all other
+standard issues apply.
+
+Resolvers that use pipes instead of calling instantiate directly may
+be optimal in cases where they can be used because they reduce
+reliance on external code.
+
+Permissions should be dropped as soon as possible. Keys do not need to
+be instantiated as root, and can be instantiated as the user who owns
+the key. 
+
+* footnotes
+[fn:1] [[/usr/src/linux-4.3/Documentation/security/keys.txt]]
