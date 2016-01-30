@@ -56,6 +56,11 @@ user-space resolution code is provided by the keyutils package. The
 keyctl binary exposes exposes the functionality provided by the
 syscall to the shell. Interacting with the system is straight forward.
 
+#+name: clear_all_keys
+#+begin_src sh :results silent :exports none
+  for i in $(keyctl show | grep user: | awk '{ print $1}'); do keyctl unlink $i; done
+#+end_src
+
 ** show keys
 To view the current state of the keyring (that is, what keys we have
 access to right now), we can use the `show` option of the `keyctl`
@@ -366,6 +371,8 @@ resolvers starting with a basic "hello world" and ending with a
 resolver that leverages Amazon's Key Management Service to provide
 cloud based DPAPI-like functionality.
 
+#+call: clear_all_keys()
+
 ** debugging a resolver
 Before trying to write a resolver, it's important to know how to debug
 one. Because verbose error messages do not propagate back to users, it
@@ -401,6 +408,10 @@ failing resolver in /usr/local/sbin:
 After creating the script we would need to set execute
 permissions. We're going to look at a couple of behaviors so do not
 make this script executable.
+
+#+begin_src sh :session sudo :results silent :exports none
+sudo chmod -x /usr/local/sbin/failing_resolver
+#+end_src
 
 We will configure the resolver by adding the following line to
 /etc/request-key.conf:
