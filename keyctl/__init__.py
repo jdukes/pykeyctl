@@ -49,8 +49,9 @@ class Key(object):
     def __repr__(self):
         return "<%s(%d)>" % (self.__class__.__name__, self.id)
 
-    def __del__(self):
-        keyctl_unlink(self.id)
+    # I don't want to delete the key when I close
+    # def __del__(self):
+    #     keyctl_unlink(self.id)
 
     @classmethod
     def request(cls, descrip, callout_info, key_type=b"user", dest_keyring=-4):
