@@ -195,10 +195,7 @@ def wrapped_string_reader(fn, key):
     error_check(ret, fn)
     if ret < buf_len:
         raise UnderflowError(buf_len, ret)
-    return buf.raw[:-1]
-    #this is for a char array not string. by default this func adds
-    #one byte for the \00. We don't need this extra byte. I'd rather
-    #alloc it and strip on return in case of stupid.
+    return buf.raw
 
 ###############################################################################
 # Exported functions
@@ -324,7 +321,7 @@ def keyctl_describe(key):
 
         extern long keyctl_describe(key_serial_t id, char *buffer, size_t buflen);
     """
-    return wrapped_string_reader(keyutils.keyctl_describe, key)
+    return wrapped_string_reader(keyutils.keyctl_describe, key)[:-1]
 
 
 @error_checked
@@ -529,7 +526,7 @@ def keyctl_get_security_context(key):
 
         extern long keyctl_get_security(key_serial_t key, char *buffer, size_t buflen);
     """
-    return wrapped_string_reader(keyutils.keyctl_get_security, key)
+    return wrapped_string_reader(keyutils.keyctl_get_security, key)[:-1]
 
 # struct iovec;
 # extern long keyctl_instantiate_iov(key_serial_t id,
