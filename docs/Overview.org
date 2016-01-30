@@ -30,7 +30,7 @@ of keys for encrypted file systems, it is also used to store other
 sensitive data such as kerberos keys. It's also used, on occasion, to
 store less sensitive or non-sensitive data such as NFS id resolution.
 
-The design of the resolution system is elegant in it's
+The design of the resolution system is elegant in its
 simplicity. User calls to the kernel for key resolution result in
 calls out to userland resolver code. This allows a developer to write
 a proof of concept in any language that is optimal for rapid
@@ -970,20 +970,6 @@ information when keys are requested.
 
 The opportunities are many, and sometimes amusing.
 
-* Appendix 1: Security Notes
-Resolvers must be very closely examined as they are executed by the
-kernel as root. If any user has write permissions to a resolver or any
-library/code it includes, an attacker can execute arbitrary code as
-the kernel. Command injection, memory corruption, and all other
-standard issues apply.
-
-Resolvers that use pipes instead of calling instantiate directly may
-be optimal in cases where they can be used because they reduce
-reliance on external code.
-
-Permissions should be dropped as soon as possible. Keys do not need to
-be instantiated as root, and can be instantiated as the user who owns
-the key. 
 
 * footnotes
 [fn:1] [[/usr/src/linux-4.3/Documentation/security/keys.txt]]
