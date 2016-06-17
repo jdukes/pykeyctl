@@ -17,6 +17,7 @@ from .helpers import chunk
 from ._exceptions import *
 from ._native import *
 
+
 # Each key has a number of attributes:
 # 	- A serial number.
 # 	- A type.
@@ -118,7 +119,14 @@ class Key(object):
     def perm(self):
         return self.props["perm"]
 
+    @property
+    def security_context(self):
+        return keyctl_get_security_context(self.id)
+    
     #add perm setter
+
+    def set_timeout(self, timeout):
+        return keyctl_set_timeout(self.id, timeout)
 
     def read(self):
         self._keybytes = keyctl_read(self.id)
@@ -133,8 +141,17 @@ class Key(object):
         keyctl_assume_authority(self.id)
         keyctl_instantiate(self.id, payload, ringid)
 
+    def revoke(self):
+        return keyctl_revoke(self.id)
+
+    
+    #add keyctl_invaldate
+    #add keyctl_assume_authority
+    #add keyctl_reject
+
     
 class Keyring(Key):
+    #add doc string
 
     def add_key(self, descrip, payload, key_type="user"):
         if type(descrip) == str:
@@ -170,6 +187,24 @@ class Keyring(Key):
     def clear(self):
         keyctl_clear_keyring(self.id)
 
-                     
+    def unlink(self, key):
+        return keyctl_unlink(key, self.id)
+    
+#export keyring defs                     
+THREAD_KEYRING = -1,
+PROCESS_KEYRING = -2,
+SESSION_KEYRING = -3
+USER_KEYRING = -4
+USER_SESSION_KEYRING = -5
+GROUP_KEYRING = -6
 
-__all__ = [Key, Keyring]
+
+__all__ = [Key,
+           Keyring,
+           THREAD_KEYRING,
+           PROCESS_KEYRING,
+           SESSION_KEYRING,
+           USER_KEYRING,
+           USER_SESSION_KEYRING,
+           GROUP_KEYRING]
+
